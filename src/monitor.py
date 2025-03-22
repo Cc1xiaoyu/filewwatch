@@ -121,7 +121,6 @@ if __name__ == "__main__":
 
     # 初始化监控器
     observer = Observer()
-    event_handler = FileChangeHandler(ignore_ext=config["ignore_ext"])
 
     # 添加监控路径
     for path in valid_paths:
