@@ -70,12 +70,12 @@ class FileChangeHandler(FileSystemEventHandler):
             self.api_client.safe_report(event_data)
 
     def _create_event_data(self, event_type: str, src_path: str, dest_path: str = None):
-        """构造事件数据字典"""
+        """构造事件数据字典 传递给服务器的数据结构"""
         return {
             "host": self.host_id,
-            "path": src_path,
             "event_type": event_type,
             "timestamp": datetime.utcnow().isoformat(),
+            "path": src_path,
             "dest_path": dest_path
         }
 
@@ -93,16 +93,16 @@ if __name__ == "__main__":
 
     # 初始化 API 客户端
     api_client = APIClient(
-        endpoint=config["api_endpoint"],
-        api_key=config["api_key"],
-        max_retries=config["max_retries"]
+        endpoint=config["api_endpoint"],# 例如http://192.168.30.129:8000/api/events 传输的路由
+        api_key=config["api_key"],      #认证key
+        max_retries=config["max_retries"]#最大重传次数
     )
 
     # 创建事件处理器（添加 host_id 和 api_client）
     host_id = os.environ.get("HOST_ID", socket.gethostname())  # 使用主机名作为默认ID
     event_handler = FileChangeHandler(
         ignore_ext=config["ignore_ext"],
-        api_client=api_client,
+        api_client=api_client,  #客户端实例
         host_id=host_id
     )
 

@@ -28,16 +28,16 @@ api_key_header = APIKeyHeader(name="X-API-Key")
 
 class FileEvent(BaseModel):
     host: str  # 客户端主机标识
-    path: str  # 文件路径
     event_type: str  # created/modified/deleted/moved
     timestamp: str  # ISO 格式时间戳
-    dest_path: str = None
+    path: str  # 文件路径
+    dest_path: str | None = None  # 允许 None
 
 #post请求
 @app.post("/api/events")
 async def report_event(
-        request: Request,  # 新增：获取请求对象
         event: FileEvent,
+        request: Request,  # 新增：获取请求对象
         api_key: str = Security(api_key_header)
 ):
     """接收并处理客户端事件"""
@@ -50,7 +50,7 @@ async def report_event(
 
     # 记录接收的事件
     logger.info(
-        f"收到来自 {event.host} 的事件: "
+        f"收到来自 {event.host} 的事件: ,时间:{event.timestamp}"
         f"类型={event.event_type}, 路径={event.path}"
     )
 
@@ -67,6 +67,28 @@ async def get_events():
     """获取所有事件（用于调试）"""
     return {"count": len(events_db), "events": events_db}
 
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+"""添加全局异常处理器，返回具体的验证错误信息："""
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    raw_body = await request.body()
+    try:
+        body = raw_body.decode("utf-8")
+    except UnicodeDecodeError:
+        body = "[Binary data]"
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.errors(),
+            "body": body
+        },
+    )
+
+
 if __name__ == "__main__":
     logger.info("服务器启动，监听在 http://0.0.0.0:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)#启用 uvicorn 服务器运行 python 服务
