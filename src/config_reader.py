@@ -1,6 +1,6 @@
 import os
 import configparser
-from typing import List, Set
+from typing import Dict, Any,List, Set
 import logging
 from logger import get_logger
 """
@@ -20,15 +20,21 @@ FILE_LEVEL = INFO                 ; 文件日志级别 文件只记录 INFO 及�
 ; 新增错误日志专用配置
 ERROR_LOG_FILE = logs/errors.log  ; 独立错误日志文件
 KEEP_ERROR_DAYS = 30              ; 错误日志保留天数
+
+[Heartbeat]
+INTERVAL_SECONDS = 30; 心跳间隔（秒）
+TIMEOUT_SECONDS = 90; 服务端超时阈值（秒）
+
 """
 class ConfigError(Exception):
     """自定义配置异常"""
     pass
 
 
-def read_config(config_path: str = "config.ini") -> dict:
+def read_config(config_path: str = "config.ini") -> Dict[str, Any]:
     """
-    读取并解析配置文件
+    读取并解析配置文件，返回配置字典
+    :param config_path: 配置文件路径
     :return: 包含配置参数的字典
     """
     try:
@@ -40,66 +46,87 @@ def read_config(config_path: str = "config.ini") -> dict:
 
         config.read(config_path, encoding='utf-8')
 
+        config_dict: Dict[str, Any] = {}
+
+        # ---------------------- 解析 [Settings] ----------------------
         try:
             settings = config["Settings"]
         except KeyError:
             raise ConfigError("配置文件中缺少 [Settings] 段落")
 
         # 解析监控路径
-        watch_paths = []
+
+        config_dict["watch_paths"] = []
         if "WATCH_PATHS" in settings:
             raw_paths = settings["WATCH_PATHS"].split(",")
-            watch_paths = [p.strip() for p in raw_paths if p.strip()]
+            config_dict["watch_paths"] = [p.strip() for p in raw_paths if p.strip()]
 
         # 解析递归监控选项（默认True）
-        recursive = True
+        config_dict["recursive"] = True
         if "RECURSIVE" in settings:
             try:
-                recursive = config.getboolean("Settings", "RECURSIVE")
+                config_dict["recursive"] = config.getboolean("Settings", "RECURSIVE")
             except ValueError:
                 raise ConfigError("RECURSIVE 必须是 true/false, yes/no, on/off, 1/0")
 
         # 解析忽略的扩展名（转换为小写集合）
-        ignore_ext: Set[str] = set()
+        config_dict["ignore_ext"] = set()
         if "IGNORE_EXT" in settings:
             raw_ext = settings["IGNORE_EXT"].split(";")
-            ignore_ext = {ext.strip().lower() for ext in raw_ext if ext.strip()}
-        config_dict={
-            "watch_paths": watch_paths,
-            "recursive": recursive,
-            "ignore_ext": ignore_ext,
-            "config_path": os.path.abspath(config_path)
-        }
+            config_dict["ignore_ext"] = {ext.strip().lower() for ext in raw_ext if ext.strip()}
 
+        # ---------------------- 解析 [Remote/服务器 and 客户端] ----------------------
+        config_dict["api_endpoint"] = None
+        config_dict["api_key"] = ""
+        if "Remote" in config:
+            remote = config["Remote"]
+
+            # API 端点
+            if "API_ENDPOINT" in remote:
+                config_dict["api_endpoint"] = remote["API_ENDPOINT"].strip()
+
+            # API 密钥
+            if "API_KEY" in remote:
+                config_dict["api_key"] = remote["API_KEY"].strip()
+
+            # 最大重试次数
+            config_dict["max_retries"] = 3
+            if "MAX_RETRIES" in remote:
+                try:
+                    config_dict["max_retries"] = int(remote["MAX_RETRIES"])
+                except ValueError:
+                    raise ConfigError("MAX_RETRIES 必须是整数")
+        # ---------------------- 解析 [Logging] ----------------------
         # 新增日志配置解析
-        log_config = {
-            "log_file": "file_changes.log",  # 默认值
-            "max_bytes": 10 * 1024 * 1024,  # 默认10MB
-            "backup_count": 3,
-            "console_level": logging.INFO,
-            "file_level": logging.INFO,
-            "error_log_file":"errors.log",
-            "keep_error_days":"30"
-        }
+        config_dict["log_file"] = "file_changes.log"
+        config_dict["error_log_file"] = "errors.log"
+        config_dict["max_bytes"] = 10 * 1024 * 1024  # 默认10MB
+        config_dict["backup_count"] = 3
+        config_dict["console_level"] = logging.INFO
+        config_dict["file_level"] = logging.INFO
+        config_dict["keep_error_days"] = 30
         if "Logging" in config:
-            log_settings = config["Logging"]
+            logging_section = config["Logging"]
 
-            # 日志文件路径
-            if "LOG_FILE" in log_settings:
-                log_config["log_file"] = log_settings["LOG_FILE"].strip()
+            # 主日志文件路径
+            if "LOG_FILE" in logging_section:
+                config_dict["log_file"] = logging_section["LOG_FILE"].strip()
+            # 错误日志文件路径
+            if "ERROR_LOG_FILE" in logging_section:
+                config_dict["error_log_file"] = logging_section["ERROR_LOG_FILE"].strip()
 
             # 最大文件大小（MB转字节）
-            if "MAX_SIZE_MB" in log_settings:
+            if "MAX_SIZE_MB" in logging_section:
                 try:
-                    max_mb = int(log_settings["MAX_SIZE_MB"])
-                    log_config["max_bytes"] = max_mb * 1024 * 1024
+                    max_mb = int(logging_section["MAX_SIZE_MB"])
+                    config_dict["max_bytes"] = max_mb * 1024 * 1024
                 except ValueError:
                     raise ConfigError("MAX_SIZE_MB 必须是整数")
 
             # 备份数量
-            if "BACKUP_COUNT" in log_settings:
+            if "BACKUP_COUNT" in logging_section:
                 try:
-                    log_config["backup_count"] = int(log_settings["BACKUP_COUNT"])
+                    config_dict["backup_count"] = int(logging_section["BACKUP_COUNT"])
                 except ValueError:
                     raise ConfigError("BACKUP_COUNT 必须是整数")
 
@@ -112,37 +139,50 @@ def read_config(config_path: str = "config.ini") -> dict:
             }
 
             # 控制台日志级别
-            if "CONSOLE_LEVEL" in log_settings:
-                console_level = log_settings["CONSOLE_LEVEL"].upper()
+            if "CONSOLE_LEVEL" in logging_section:
+                console_level = logging_section["CONSOLE_LEVEL"].upper()
                 if console_level not in level_map:
                     raise ConfigError(f"无效的CONSOLE_LEVEL: {console_level}")
-                log_config["console_level"] = level_map[console_level]
+                config_dict["console_level"] = level_map[console_level]
 
             # 文件日志级别
-            if "FILE_LEVEL" in log_settings:
-                file_level = log_settings["FILE_LEVEL"].upper()
+            if "FILE_LEVEL" in logging_section:
+                file_level = logging_section["FILE_LEVEL"].upper()
                 if file_level not in level_map:
                     raise ConfigError(f"无效的FILE_LEVEL: {file_level}")
-                log_config["file_level"] = level_map[file_level]
-            #错误日志路径
-            if "ERROR_LOG_FILE" in log_settings:
-                log_config["error_log_file"] = log_settings["ERROR_LOG_FILE"].strip()
-            #错误日志保留天数
-            if "KEEP_ERROR_DAYS" in log_settings:
+                config_dict["file_level"] = level_map[file_level]
+
+            # 错误日志保留天数
+            if "KEEP_ERROR_DAYS" in logging_section:
                 try:
-                    log_config["keep_error_days"] = int(log_settings["KEEP_ERROR_DAYS"])
+                    config_dict["keep_error_days"] = int(logging_section["KEEP_ERROR_DAYS"])
                 except ValueError:
                     raise ConfigError("KEEP_ERROR_DAYS 必须是整数")
 
-        # 合并到返回字典
-        config_dict.update(log_config)
+        # ---------------------- 解析 [Heartbeat] ----------------------
+        config_dict["heartbeat_interval"] = 30
+        config_dict["heartbeat_timeout"] = 90
 
-        #客户端相关配置
-        config_dict["api_endpoint"] = config.get("Remote", "API_ENDPOINT")
-        config_dict["api_key"] = config.get("Remote", "API_KEY")
-        config_dict["max_retries"] = config.getint("Remote", "MAX_RETRIES", fallback=3)
+        if "Heartbeat" in config:
+            heartbeat = config["Heartbeat"]
+
+            if "INTERVAL_SECONDS" in heartbeat:
+                try:
+                    config_dict["heartbeat_interval"] = int(heartbeat["INTERVAL_SECONDS"])
+                except ValueError:
+                    raise ConfigError("HEARTBEAT_INTERVAL 必须是整数")
+
+            if "TIMEOUT_SECONDS" in heartbeat:
+                try:
+                    config_dict["heartbeat_timeout"] = int(heartbeat["TIMEOUT_SECONDS"])
+                except ValueError:
+                    raise ConfigError("HEARTBEAT_TIMEOUT 必须是整数")
+
+        # 添加配置文件绝对路径
+        config_dict["config_path"] = os.path.abspath(config_path)
 
         return config_dict
+
     except (ConfigError, PermissionError) as e:
         logger = get_logger("ConfigReader")
         logger.error("配置文件加载失败", exc_info=True)

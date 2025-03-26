@@ -3,7 +3,7 @@ from fastapi import FastAPI, Security, HTTPException, Request
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 import uvicorn
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 # 配置日志
 logging.basicConfig(
@@ -20,11 +20,19 @@ app = FastAPI(title="File Monitor Server")
 
 # 简单存储（实际应使用数据库）
 events_db = []
+# 存储客户端状态（实际生产环境应使用数据库）
+client_status = {}
 
 # 认证配置
 API_KEY = "your-secret-key-123"
 api_key_header = APIKeyHeader(name="X-API-Key")
 
+class HeartbeatData(BaseModel):
+    """
+    心跳数据
+    """
+    client_id: str
+    timestamp: str  # ISO格式时间戳
 
 class FileEvent(BaseModel):
     host: str  # 客户端主机标识
@@ -56,11 +64,45 @@ async def report_event(
 
     # 添加时间戳和服务端记录时间
     server_timestamp = datetime.utcnow().isoformat()
-    event_data = event.dict()
+    # event_data = event.dict()
+    event_data = event.model_dump()
     event_data["server_time"] = server_timestamp
 
     events_db.append(event_data)
     return {"status": "success"}
+
+#心跳检测 报告
+@app.post("/api/heartbeat")
+async def report_heartbeat(
+    request: Request,
+    data: HeartbeatData,
+    api_key: str = Security(api_key_header)
+):
+    """接收客户端心跳"""
+    # 认证检查
+    if api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+
+    # 更新状态
+    client_status[data.client_id] = {
+        "last_heartbeat": datetime.utcnow(),
+        "ip": request.client.host
+    }
+    logger.info(f"收到来自 {data.client_id} 的心跳")
+    return {"status": "alive"}
+@app.get("/api/status")
+async def get_clients_status():
+    """获取所有客户端状态（调试用）"""
+    status = {}
+    for client_id, info in client_status.items():
+        last_time = info["last_heartbeat"]
+        offline_seconds = (datetime.utcnow() - last_time).total_seconds()
+        status[client_id] = {
+            "online": offline_seconds < 90,  # 假设超时阈值为90秒
+            "last_heartbeat": last_time.isoformat(),
+            "ip": info["ip"]
+        }
+    return status
 
 @app.get("/api/events")
 async def get_events():

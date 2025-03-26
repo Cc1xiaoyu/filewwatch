@@ -12,6 +12,9 @@ import socket
 from config_reader import read_config, ConfigError  #配置文件读取
 from client.api_client import APIClient         #客户端处理
 from datetime import datetime
+# 在配置读取后初始化
+from client.heartbeat import HeartbeatClient
+
 
 # 在类外初始化日志
 logging.basicConfig(
@@ -82,7 +85,7 @@ class FileChangeHandler(FileSystemEventHandler):
 if __name__ == "__main__":
     # 初始化日志（需要先读取配置）
     try:
-        config = read_config()
+        config = read_config()#读取配置
         setup_logger(config)  # 传入配置字典
         logger = get_logger("FileMonitor")
         logger.info(f"成功加载配置文件：{config['config_path']}")
@@ -122,6 +125,16 @@ if __name__ == "__main__":
     # 初始化监控器
     observer = Observer()
 
+    # 初始化心跳客户端
+    heartbeat_client = HeartbeatClient(
+        client_id=host_id,
+        api_endpoint=f"{config['api_endpoint'].rstrip('/')}/heartbeat",
+        api_key=config["api_key"],
+        # interval=config.getint("Heartbeat", "INTERVAL_SECONDS", fallback=30)
+        interval=config["heartbeat_interval"]
+    )
+    heartbeat_client.start()
+
     # 添加监控路径
     for path in valid_paths:
         observer.schedule(
@@ -132,7 +145,7 @@ if __name__ == "__main__":
         print(f"监控路径：{path} (递归：{config['recursive']})")
     observer.start()
     print("监控已启动...")
-
+    # 在程序退出时停止心跳
     try:
         while True:
             time.sleep(1)
@@ -140,6 +153,7 @@ if __name__ == "__main__":
         logger.error("监控循环异常", exc_info=True)
         raise
     except KeyboardInterrupt:
+        heartbeat_client.stop()#停止心跳发送
         observer.stop()
         print("\n监控已停止。")
     observer.join()
