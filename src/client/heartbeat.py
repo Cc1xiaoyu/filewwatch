@@ -3,6 +3,7 @@ import time
 import requests
 from typing import Dict
 import logging
+from datetime import datetime
 
 logger = logging.getLogger("FileMonitor.Heartbeat")
 
@@ -27,7 +28,7 @@ class HeartbeatClient:
         try:
             data = {
                 "client_id": self.client_id,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             }
             response = requests.post(
                 self.api_endpoint,

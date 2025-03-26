@@ -11,6 +11,11 @@ WATCH_PATHS = D:/test_folder1,D:/test_folder2
 RECURSIVE = True
 IGNORE_EXT = .exe;.mp3
 
+[Remote]
+API_ENDPOINT = http://192.168.30.129:8000/api/events    ;远程API地址
+API_KEY = your-secret-key-123                           ;密钥
+MAX_RETRIES = 3                                         ;重试次数
+
 [Logging]
 LOG_FILE = logs/file_changes.log  ; 日志文件路径
 MAX_SIZE_MB = 10                  ; 单个日志文件最大大小（MB）

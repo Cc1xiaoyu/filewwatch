@@ -63,7 +63,7 @@ async def report_event(
     )
 
     # 添加时间戳和服务端记录时间
-    server_timestamp = datetime.utcnow().isoformat()
+    server_timestamp = datetime.now().isoformat()
     # event_data = event.dict()
     event_data = event.model_dump()
     event_data["server_time"] = server_timestamp
@@ -72,7 +72,7 @@ async def report_event(
     return {"status": "success"}
 
 #心跳检测 报告
-@app.post("/api/heartbeat")
+@app.post("/api/events/heartbeat")
 async def report_heartbeat(
     request: Request,
     data: HeartbeatData,
@@ -85,18 +85,18 @@ async def report_heartbeat(
 
     # 更新状态
     client_status[data.client_id] = {
-        "last_heartbeat": datetime.utcnow(),
+        "last_heartbeat": datetime.now(),
         "ip": request.client.host
     }
     logger.info(f"收到来自 {data.client_id} 的心跳")
     return {"status": "alive"}
-@app.get("/api/status")
+@app.get("/api/events/status")
 async def get_clients_status():
     """获取所有客户端状态（调试用）"""
     status = {}
     for client_id, info in client_status.items():
         last_time = info["last_heartbeat"]
-        offline_seconds = (datetime.utcnow() - last_time).total_seconds()
+        offline_seconds = (datetime.now() - last_time).total_seconds()
         status[client_id] = {
             "online": offline_seconds < 90,  # 假设超时阈值为90秒
             "last_heartbeat": last_time.isoformat(),

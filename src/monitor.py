@@ -77,7 +77,7 @@ class FileChangeHandler(FileSystemEventHandler):
         return {
             "host": self.host_id,
             "event_type": event_type,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now().isoformat(),
             "path": src_path,
             "dest_path": dest_path
         }
