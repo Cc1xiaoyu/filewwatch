@@ -1,0 +1,24 @@
+.container {
+    max-width: 1200px;
+    margin: 20px auto;
+    padding: 20px;
+}
+
+.card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.event-item {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    display: grid;
+    grid-template-columns: 150px 120px 100px 1fr;
+}
+
+.type.modified { color: #1890ff; }
+.type.created  { color: #52c41a; }
+.type.deleted  { color: #ff4d4f; }

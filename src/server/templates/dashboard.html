@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>文件监控系统</title>
+    <link href="/static/css/style.css" rel="stylesheet">
+    <script src="/static/lib/echarts.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 客户端状态面板 -->
+        <div id="client-status" class="card">
+            <h2>📡 客户端在线状态</h2>
+            <div id="client-chart" style="height:400px"></div>
+
+        </div>
+
+        <!-- 实时事件流 -->
+        <div id="event-stream" class="card">
+            <h2>📋 最新文件事件</h2>
+            <div id="events-list"></div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
