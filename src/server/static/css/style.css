@@ -37,3 +37,14 @@
     border-collapse: collapse;
     margin-top: 15px;
 }
+.status-online {
+    background: #2ecc71;
+}
+
+.status-offline {
+    background: #e74c3c;
+}
+.client-card.offline {
+    background: #ffebee;
+    opacity: 0.7;
+}

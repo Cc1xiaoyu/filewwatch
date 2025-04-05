@@ -11,6 +11,8 @@ from typing import Dict, List, Deque
 from collections import deque
 import time
 import asyncio
+import uuid
+import json
 # ---------- Web界面相关 ----------
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,7 +25,9 @@ from fastapi.responses import JSONResponse
 
 # ---------- 全局状态存储 # 简单存储（实际应使用数据库）----------
 events_db: Deque[Dict] = deque(maxlen=50)  # 保留最近50条事件
-client_status: Dict[str, Dict] = {}  # 客户端状态存储
+client_status: Dict[str, Dict] = {}  # 客户端状态存储 # 结构：{'client_id': {last_heartbeat:datetime,now(), 'ip':[ip]}}
+client_status2: Dict[str, Dict] = {}  # 结构：{client_id: {online, last_seen, ip, hostname}}
+clients_lock = asyncio.Lock()  # 异步锁保证线程安全
 last_data_update = time.time()  # 最后数据更新时间戳
 
 # ---------- 日志配置 ----------
@@ -163,11 +167,18 @@ async def report_heartbeat(
     if api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    # 更新状态
-    client_status[data.client_id] = {
-        "last_heartbeat": datetime.now(),
-        "ip": request.client.host
-    }
+    async with clients_lock:
+        # 更新状态
+        client_status[data.client_id] = {
+            "last_heartbeat": datetime.now().isoformat(),
+            "ip": request.client.host
+        }
+        client_status2[data.client_id]={
+            "online":True,
+            "last_seen":datetime.now().isoformat(),
+            "ip":request.client.host,
+            "hostname":data.client_id
+        }
     logger.info(f"收到来自 {data.client_id} 的心跳")
     return {"status": "alive"}
 
@@ -219,64 +230,107 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # , response_class=HTMLResponse
 # ----------主路由,返回动态页面----------
-@app.get("/")
+@app.get("/",response_class=HTMLResponse)
 async def dashboard(request: Request):
     """主路由,返回动态页面:监控仪表盘"""
-    # client_status_data:Dict[str, Dict]=get_client_status()
-    client_status_data = {
-        "1": {'ip': "192.168.1.12", 'online': True, 'last_heartbeat': "2025-12-1 11:36"},
-        "2": {'ip': "192.168.1.13", 'online': False, 'last_heartbeat': "2025-12-2 11:36"},
-        "3": {'ip': "192.168.1.14", 'online': True, 'last_heartbeat': "2025-12-3 11:36"},
 
-    }
 
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
-            "clients_status": {
-                "1": {'ip': "192.168.1.12", 'online': True, 'last_heartbeat': "2025-12-1 11:36"},
-                "2": {'ip': "192.168.1.13", 'online': False, 'last_heartbeat': "2025-12-2 11:36"},
-                "3": {'ip': "192.168.1.14", 'online': True, 'last_heartbeat': "2025-12-3 11:36"},
-
-            },
             # "timestamp": datetime.now().strftime("%Y%m%d%H%M%S")
         },  # ,"clients_event":events_db
     )
 # --------------------------时间传递---------------------------------------
 # SSE 时间流端点
-async def time_event_stream():
+async def sse_event_stream():
+    """sse数据传输"""
     while True:
-        # 生成当前时间（格式化为字符串）
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 深拷贝当前状态避免数据竞争
+        async with clients_lock:
+            current_clients = client_status2.copy()
+        """字典推导式中的**info是用于解包原有字典，合并到新字典中，然后后面的"online": ...会覆盖原有的online键。这里需要说明合并的顺序，后面的键会覆盖前面的，所以新的online值会替换原来的。"""
+        # 转换为可序列化格式
+        data = {
+            cid: {
+                **info,  # 解包原有字典
+                "online": info["online"] and  # 二次验证是否超时
+                          (datetime.now() - datetime.fromisoformat(info["last_seen"])).seconds < HEARTBEAT_TIMEOUT
+            }
+            for cid, info in current_clients.items()
+        }
+        # 按照 SSE 格式生成字符串
+        time_data = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        outData={"timestamp":time_data,
+                 "clients_activeStatus":data}
 
-        # SSE 数据格式要求：以 "data: " 开头，结尾用两个换行
-        yield f"data: {current_time}\n\n"
+        json_data = json.dumps(outData)# 关键修复：用 json.dumps 生成合法 JSON
+        yield f"data: {json_data} \n\n"
 
-        # 等待1秒
+        # 每一秒更新一次
         await asyncio.sleep(1)
 
 
 # SSE 路由
-@app.get("/sse/time")
-async def sse_time():
+@app.get("/sse/data")
+async def sse_data():
+    """定时获取时间+客户端状态"""
     return StreamingResponse(
-        time_event_stream(),
+        sse_event_stream(),
+        media_type="text/event-stream"  # 必须声明为事件流
+    )
+@app.get("/sse/data")
+async def sse_data():
+    """定时获取客户端状态"""
+    return StreamingResponse(
+        sse_event_stream(),
         media_type="text/event-stream"  # 必须声明为事件流
     )
 
 
-
-
+"""示例
+{
+  "DESKTOP-JG61K5D": {
+    "online": true,
+    "last_heartbeat": "2025-04-05T16:41:37.722801",
+    "ip": "192.168.30.1"
+  }
+}
+"""
 @app.get("/api/data")
 async def get_latest_data():
-    """提供最新数据的API端点"""
+    """提供最新的客户端数据"""
     return get_client_status()
 
-
+"""示例
+{
+  "clients": {
+    "DESKTOP-JG61K5D": {
+      "online": true,
+      "last_heartbeat": "2025-04-05T16:44:08.072718",
+      "ip": "192.168.30.1"
+    }
+  },
+  "recent_events": [
+    {
+      "host": "DESKTOP-JG61K5D",
+      "path": "D:\\code\\python\\filewatch\\test_folder\\111\\新建文本文档.txt",
+      "event_type": "moved",
+      "timestamp": "2025-04-05T16:44:01.851174"
+    },
+    {
+      "host": "DESKTOP-JG61K5D",
+      "path": "D:\\code\\python\\filewatch\\test_folder\\111\\新建文本文档.txt",
+      "event_type": "created",
+      "timestamp": "2025-04-05T16:44:00.205860"
+    }
+  ]
+}
+"""
 @app.get("/api/status")
 async def get_real_time_status():
-    """获取实时状态"""
+    """获取客户端的实时状态数据"""
     return {
         "clients": get_client_status(),
         "recent_events": get_recent_events()
