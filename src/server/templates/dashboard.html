@@ -2,25 +2,58 @@
 <html>
 <head>
     <title>文件监控系统</title>
-    <link href="/static/css/style.css" rel="stylesheet">
-    <script src="/static/lib/echarts.min.js"></script>
+    <link href="./static/css/style.css" rel="stylesheet">
+    <!--    <script src="./static/lib/echarts.min.js"></script>-->
 </head>
 <body>
-    <div class="container">
-        <!-- 客户端状态面板 -->
-        <div id="client-status" class="card">
+<div class="container">
+    <!-- 客户端状态面板 -->
+    <div id="client-status" class="card">
+        <h2>📡 客户端在线状态</h2>
+        <div style="height:400px">
+
+            <span class="label">活跃客户端数:</span>
+            <!--            <span class="value">{{ active_users }}</span>-->
+            <table class="data-table">
+                <thead>
+                <tr>
+                    <th>ip</th>
+                    <th>状态</th>
+                    <th>最近一次连接时间</th>
+                </tr>
+                </thead>
+                <tbody id="client-chart">
+                <!--                {% if clients_status %}-->
+                {% for key,value in clients_status.items() %}
+                <tr>
+                    <td id="client_ip">{{ value.ip }}</td>
+                    <td id="client_online">{{ value.online }}</td>
+                    <td id="client_last_heartbeat">{{ value.last_heartbeat }}</td>
+                </tr>
+                {% endfor %}
+                <!--                {% else %}-->
+                <!--                <tr>-->
+                <!--                    <td colspan="3">无客户端在线</td>-->
+                <!--                </tr>-->
+                <!--                {% endif %}-->
+
+                </tbody>
+            </table>
             <h2>📡 客户端在线状态</h2>
-            <div id="client-chart" style="height:400px"></div>
 
         </div>
 
-        <!-- 实时事件流 -->
-        <div id="event-stream" class="card">
-            <h2>📋 最新文件事件</h2>
-            <div id="events-list"></div>
-        </div>
     </div>
 
-    <script src="/static/js/app.js"></script>
+    <!-- 实时事件流 -->
+    <div id="event-stream" class="card">
+        <h2>📋 最新文件事件</h2>
+        <div id="events-list"></div>
+        <h1 id="liveTime">Loading time...</h1>
+    </div>
+</div>
+<h1>服务器时间：<span id="time">加载中...</span></h1>
+
 </body>
+<script src="/static/js/sse.js" type="text/javascript"></script>
 </html>
